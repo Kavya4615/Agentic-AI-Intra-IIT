@@ -1,0 +1,29 @@
+# ============================================================
+#  Clinical Decision-Support System — Python Dependencies
+# ============================================================
+
+# --- Phase 1: Simulator ---
+numpy>=1.24.0
+
+# --- Phase 2: Ingestion Gateway ---
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+websockets>=12.0
+pydantic>=2.5.0
+
+# --- Phase 3-6: State, Trends, Risk, Alerts ---
+scipy>=1.12.0
+
+# --- Database ---
+sqlalchemy>=2.0.25
+psycopg2-binary>=2.9.9
+asyncpg>=0.29.0
+
+# --- Phase 7: AI Agent ---
+# pgvector>=0.2.4
+# openai>=1.10.0
+# langchain>=0.1.0
+# google-generativeai>=0.3.0
+
+# --- Utilities ---
+python-dotenv>=1.0.0
