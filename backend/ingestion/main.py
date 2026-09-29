@@ -8,6 +8,14 @@ The central web server that:
 4. Provides REST endpoints for querying patient data
 5. Broadcasts updates to frontend dashboard clients
 
+Phases 9–11 additions:
+  Phase 9:  GET  /api/patients/{id}/context
+  Phase 10: POST /api/patients/{id}/alerts/{alert_id}/decision
+            GET  /api/patients/{id}/alerts
+            GET  /api/alerts/pending
+  Phase 11: GET  /api/patients/{id}/audit
+            GET  /api/audit/{correlation_id}
+
 Architecture:
   Simulator ──WebSocket──▶ Ingestion Gateway ──▶ State Engine ──▶ Risk Engine
                                 │
@@ -17,13 +25,17 @@ Architecture:
 
 import asyncio
 import json
+import os
 import time
+from contextlib import asynccontextmanager
 from collections import defaultdict, deque
 from datetime import datetime, timezone
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from dotenv import load_dotenv
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from pydantic import ValidationError
 
 from ingestion.schemas import (
@@ -33,21 +45,78 @@ from ingestion.schemas import (
     SystemStatusResponse,
 )
 from simulator.patients import get_all_patients, get_patient_by_id
+from alerts.pipeline import DeterministicPipeline, create_pipeline
+from alerts.decisions import decision_manager, DecisionManager
+from state.patient_state import AlertLevel, state_manager
+from agent.agent_service import agent_service
+from database.audit import audit_logger, EventType
+
+load_dotenv()
+
+# Global deterministic pipeline (initialised at startup)
+_pipeline: Optional[DeterministicPipeline] = None
 
 # =============================================================================
 #  Application Setup
 # =============================================================================
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _pipeline
+    _pipeline = create_pipeline()
+
+    api_key_set = bool(os.getenv("OPENAI_API_KEY"))
+    print()
+    print("=" * 70)
+    print("  CLINICAL DECISION-SUPPORT - INGESTION GATEWAY v2.0")
+    print("=" * 70)
+    print("  WebSocket endpoints:")
+    print("    /ws/vitals/{patient_id}  - Simulator -> Server (per patient)")
+    print("    /ws/dashboard            - Server -> Dashboard (broadcasts)")
+    print("  REST endpoints (core):")
+    print("    GET  /api/status                           - System status")
+    print("    GET  /api/patients                         - All patient profiles")
+    print("    GET  /api/patients/{id}                    - Single patient + vitals")
+    print("    GET  /api/patients/{id}/vitals             - Recent vital history")
+    print("    GET  /api/vitals/latest                    - Latest vitals all patients")
+    print("  Phase 7/9:")
+    print("    GET  /api/patients/{id}/explanation        - Latest SBAR (with context)")
+    print("    POST /api/patients/{id}/explanation/trigger- Manually trigger SBAR")
+    print("  Phase 9:")
+    print("    GET  /api/patients/{id}/context            - Static clinical context")
+    print("  Phase 10:")
+    print("    POST /api/patients/{id}/alerts/{aid}/decision - Clinician decision")
+    print("    GET  /api/patients/{id}/alerts             - Alert list + decisions")
+    print("    GET  /api/alerts/pending                   - Needs-review queue")
+    print("  Phase 11:")
+    print("    GET  /api/patients/{id}/audit              - Patient audit log")
+    print("    GET  /api/audit/{correlation_id}           - Full episode chain")
+    print("    GET  /api/audit                            - Recent audit entries")
+    print("=" * 70)
+    print(f"  AI Agent: {'LIVE (OpenAI)' if api_key_set else 'MOCK (no OPENAI_API_KEY set)'}")
+    print("=" * 70)
+    print()
+
+    simulator_task = asyncio.create_task(_run_embedded_simulator())
+    yield
+    simulator_task.cancel()
+
 app = FastAPI(
     title="Clinical Decision-Support — Ingestion Gateway",
     description="Real-time vital sign ingestion and streaming for patient monitoring.",
-    version="1.0.0",
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
 # Allow CORS for the React frontend (will run on a different port)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict to frontend URL
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -55,7 +124,26 @@ app.add_middleware(
 
 
 # =============================================================================
-#  In-Memory State (will be replaced by proper State Engine in Phase 3)
+#  Pydantic request bodies (Phase 10)
+# =============================================================================
+
+class DecisionRequest(BaseModel):
+    decision: str = Field(
+        ...,
+        description="One of: accept | dismiss | defer | investigate"
+    )
+    clinician_id: Optional[str] = Field(
+        default="clinician",
+        description="Clinician identifier (placeholder for demo)"
+    )
+    reason: Optional[str] = Field(
+        default=None,
+        description="Optional free-text note for the decision"
+    )
+
+
+# =============================================================================
+#  In-Memory State
 # =============================================================================
 
 class ConnectionManager:
@@ -106,18 +194,52 @@ class ConnectionManager:
         self.dashboard_connections.discard(websocket)
         print(f"  ✗ Dashboard client disconnected (remaining: {len(self.dashboard_connections)})")
 
-    async def process_reading(self, patient_id: str, reading: dict):
+    async def process_reading(self, patient_id: str, reading: dict, scenario: str = ""):
         """
         Process a validated vital reading:
-        1. Store in history
-        2. Update latest reading
-        3. Broadcast to all dashboard clients
+        1. Run through the deterministic pipeline (preprocessor -> risk -> alert SM)
+        2. Store in history and update latest reading
+        3. Broadcast vital update to all dashboard clients
+        4. If an ESCALATED transition fires, trigger the agentic reasoning layer
+        5. Phase 11: Log observation + alert events to audit trail
         """
+        global _pipeline
+
+        alert_event = None
+        correlation_id = ""
+
+        # ── Deterministic pipeline ────────────────────────────────────────────
+        if _pipeline:
+            result = _pipeline.process(reading)
+            if result.alert_event:
+                alert_event = result.alert_event
+                reading["_alert_event"] = result.alert_event.to_dict()
+            if result.risk_score:
+                reading["_risk_score"] = round(result.risk_score.risk_score, 2)
+
         self.vital_history[patient_id].append(reading)
         self.latest_readings[patient_id] = reading
         self.total_readings += 1
 
-        # Broadcast to all connected dashboards
+        # ── Phase 11: Log observation ─────────────────────────────────────────
+        vitals_payload = reading.get("vitals", {})
+        risk_score_val = reading.get("_risk_score", 0)
+
+        # Only log every 5th observation to avoid flooding (adjust as needed)
+        if self.total_readings % 5 == 0 or alert_event:
+            audit_logger.log(
+                patient_id=patient_id,
+                event_type=EventType.OBSERVATION,
+                payload={
+                    "vitals": vitals_payload,
+                    "risk_score": risk_score_val,
+                    "reading_number": reading.get("reading_number"),
+                    "timestamp": reading.get("timestamp"),
+                },
+                correlation_id=correlation_id,
+            )
+
+        # ── Broadcast vital update ────────────────────────────────────────────
         broadcast_msg = json.dumps({
             "type": "vital_update",
             "data": reading
@@ -128,8 +250,58 @@ class ConnectionManager:
                 await ws.send_text(broadcast_msg)
             except Exception:
                 disconnected.add(ws)
-        # Clean up broken connections
         self.dashboard_connections -= disconnected
+
+        # ── Phase 10: Register alert in decision manager ──────────────────────
+        if alert_event:
+            # Generate correlation ID for this episode
+            correlation_id = audit_logger.generate_correlation_id()
+
+            # Phase 11: Log alert state transition
+            audit_logger.log(
+                patient_id=patient_id,
+                event_type=EventType.ALERT,
+                payload={
+                    "from_level": alert_event.from_level.value,
+                    "to_level": alert_event.to_level.value,
+                    "risk_score": round(alert_event.risk_score, 2),
+                    "message": alert_event.message,
+                },
+                correlation_id=correlation_id,
+            )
+
+            decision_manager.register_alert(alert_event, correlation_id=correlation_id)
+
+            # ── Agentic reasoning on ESCALATED transitions ──────────────────
+            if alert_event.to_level == AlertLevel.ESCALATED:
+                patient_state = state_manager.get_state(patient_id)
+                if patient_state:
+                    print(f"  [Agent] ESCALATED alert for {patient_id} — generating SBAR...")
+                    asyncio.create_task(
+                        agent_service.handle_escalation(
+                            alert_event=alert_event,
+                            patient_state=patient_state,
+                            scenario=scenario or "",
+                            audit_logger=audit_logger,
+                            correlation_id=correlation_id,
+                        )
+                    )
+
+            # Broadcast alert event to dashboard (include decision context)
+            alert_msg = json.dumps({
+                "type": "alert_event",
+                "data": {
+                    **alert_event.to_dict(),
+                    "correlation_id": correlation_id,
+                }
+            })
+            stale = set()
+            for ws in self.dashboard_connections:
+                try:
+                    await ws.send_text(alert_msg)
+                except Exception:
+                    stale.add(ws)
+            self.dashboard_connections -= stale
 
     def get_patient_history(self, patient_id: str, limit: int = 50) -> List[dict]:
         """Get the most recent readings for a patient."""
@@ -160,26 +332,24 @@ async def websocket_vitals(websocket: WebSocket, patient_id: str):
     await manager.connect_patient(patient_id, websocket)
     try:
         while True:
-            # Receive JSON message from simulator
             data = await websocket.receive_text()
 
             try:
-                # Parse and validate with Pydantic
                 raw = json.loads(data)
                 reading = VitalReadingMessage(**raw)
 
-                # Verify the patient_id matches the URL
                 if reading.patient_id != patient_id:
                     await websocket.send_text(json.dumps({
                         "error": f"Patient ID mismatch: URL={patient_id}, message={reading.patient_id}"
                     }))
                     continue
 
-                # Process the validated reading
-                await manager.process_reading(patient_id, raw)
+                patient_profile = get_patient_by_id(patient_id)
+                scenario = patient_profile.scenario if patient_profile else ""
+
+                await manager.process_reading(patient_id, raw, scenario=scenario)
 
             except (json.JSONDecodeError, ValidationError) as e:
-                # Send error back to simulator but don't disconnect
                 await websocket.send_text(json.dumps({
                     "error": f"Invalid reading: {str(e)}"
                 }))
@@ -208,21 +378,16 @@ async def websocket_dashboard(websocket: WebSocket):
         }
         await websocket.send_text(json.dumps(initial_state))
 
-        # Keep the connection alive; receive any commands from dashboard
         while True:
             msg = await websocket.receive_text()
-            # Handle dashboard commands (e.g., clinician decisions)
             try:
                 command = json.loads(msg)
                 cmd_type = command.get("type", "")
 
                 if cmd_type == "clinician_decision":
-                    # Log clinician's decision on an alert (Phase 6+)
                     print(f"  📋 Clinician decision: {command.get('data', {})}")
-                    # Will be forwarded to audit trail in later phases
 
                 elif cmd_type == "request_history":
-                    # Dashboard requesting vital history for a patient
                     pid = command.get("patient_id", "")
                     limit = command.get("limit", 50)
                     history = manager.get_patient_history(pid, limit)
@@ -240,7 +405,7 @@ async def websocket_dashboard(websocket: WebSocket):
 
 
 # =============================================================================
-#  REST API Endpoints
+#  REST API — Core Endpoints
 # =============================================================================
 
 @app.get("/", tags=["Health"])
@@ -311,30 +476,307 @@ async def get_all_latest_vitals():
 
 
 # =============================================================================
+#  Phase 7: Agent / SBAR Explanation Endpoints
+# =============================================================================
+
+@app.get("/api/patients/{patient_id}/explanation", tags=["Agent"])
+async def get_patient_explanation(patient_id: str):
+    """
+    [Phase 7/9] Get the latest LLM-generated SBAR clinical explanation for a patient.
+    Phase 9: the explanation now incorporates patient-specific context.
+    """
+    patient = get_patient_by_id(patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail=f"Patient {patient_id} not found")
+
+    sbar = agent_service.get_cached_explanation(patient_id)
+    if not sbar:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No explanation available for {patient_id}. "
+                "An ESCALATED alert must fire before an explanation is generated."
+            )
+        )
+
+    age = agent_service.get_cached_explanation_age(patient_id)
+    return {
+        "patient_id": patient_id,
+        "explanation_age_seconds": age,
+        "sbar": sbar.model_dump(),
+    }
+
+
+@app.post("/api/patients/{patient_id}/explanation/trigger", tags=["Agent"])
+async def trigger_patient_explanation(patient_id: str):
+    """
+    [Phase 7/9] Manually trigger an SBAR explanation for a patient (for testing/demo).
+    Phase 9: patient clinical context is now injected automatically.
+    """
+    patient = get_patient_by_id(patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail=f"Patient {patient_id} not found")
+
+    patient_state = state_manager.get_state(patient_id)
+    if not patient_state:
+        raise HTTPException(status_code=404, detail=f"No state found for {patient_id}")
+
+    from alerts.state_machine import AlertEvent
+    from state.patient_state import AlertLevel
+
+    risk = patient_state.current_risk_score or 75.0
+    correlation_id = audit_logger.generate_correlation_id()
+
+    mock_event = AlertEvent(
+        patient_id=patient_id,
+        from_level=AlertLevel.SUSPECTED,
+        to_level=AlertLevel.ESCALATED,
+        risk_score=risk,
+        message="Manually triggered explanation request",
+    )
+
+    # Phase 11: log the trigger as an alert event
+    audit_logger.log(
+        patient_id=patient_id,
+        event_type=EventType.ALERT,
+        payload={
+            "from_level": "SUSPECTED",
+            "to_level": "ESCALATED",
+            "risk_score": risk,
+            "message": "Manually triggered",
+        },
+        correlation_id=correlation_id,
+    )
+
+    sbar = await agent_service.handle_escalation(
+        alert_event=mock_event,
+        patient_state=patient_state,
+        scenario=patient.scenario,
+        audit_logger=audit_logger,
+        correlation_id=correlation_id,
+    )
+
+    if not sbar:
+        raise HTTPException(status_code=500, detail="Agent failed to generate explanation.")
+
+    return {
+        "patient_id": patient_id,
+        "triggered_manually": True,
+        "correlation_id": correlation_id,
+        "sbar": sbar.model_dump(),
+    }
+
+
+# =============================================================================
+#  Phase 9: Patient Clinical Context
+# =============================================================================
+
+@app.get("/api/patients/{patient_id}/context", tags=["Phase 9 — Clinical Context"])
+async def get_patient_context(patient_id: str):
+    """
+    [Phase 9] Return the static clinical context for a patient:
+    age, history, medications, recent labs, and baseline vitals.
+    """
+    from simulator.patient_context_data import get_patient_context as _get_ctx
+    patient = get_patient_by_id(patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail=f"Patient {patient_id} not found")
+
+    ctx = _get_ctx(patient_id)
+    if not ctx:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No clinical context found for {patient_id}"
+        )
+
+    return {
+        "patient_id": patient_id,
+        "context": ctx.model_dump(),
+        "formatted_text": ctx.to_structured_text(),
+    }
+
+
+# =============================================================================
+#  Phase 10: Clinician Decision Endpoints
+# =============================================================================
+
+@app.post("/api/patients/{patient_id}/alerts/{alert_id}/decision", tags=["Phase 10 — Decisions"])
+async def post_alert_decision(
+    patient_id: str,
+    alert_id: str,
+    body: DecisionRequest,
+):
+    """
+    [Phase 10] Post a clinician decision on an alert:
+      - accept: acknowledge, keep monitoring, mark reviewed
+      - dismiss: suppress re-alerting (30 min cooldown), force state to NORMAL
+      - defer: snooze for 15 minutes, re-evaluate after
+      - investigate: flag for follow-up, no suppression
+
+    This endpoint applies state machine side-effects via the pipeline.
+    """
+    patient = get_patient_by_id(patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail=f"Patient {patient_id} not found")
+
+    try:
+        dec = decision_manager.record_decision(
+            alert_id=alert_id,
+            decision=body.decision,
+            clinician_id=body.clinician_id or "clinician",
+            reason=body.reason,
+            pipeline=_pipeline,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Alert {alert_id} not found")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    # Phase 11: Log the decision to audit trail
+    alert_record = decision_manager.get_alert(alert_id)
+    correlation_id = alert_record.correlation_id if alert_record else ""
+
+    audit_logger.log(
+        patient_id=patient_id,
+        event_type=EventType.DECISION,
+        payload={
+            "decision": dec.decision,
+            "clinician_id": dec.clinician_id,
+            "reason": dec.reason,
+            "previous_state": dec.previous_state,
+            "resulting_state": dec.resulting_state,
+            "defer_until": dec.defer_until,
+        },
+        correlation_id=correlation_id,
+    )
+
+    # Broadcast decision update to dashboard
+    broadcast_msg = json.dumps({
+        "type": "decision_update",
+        "data": {
+            "patient_id": patient_id,
+            "alert_id": alert_id,
+            "decision": dec.to_dict(),
+        }
+    })
+    disconnected = set()
+    for ws in manager.dashboard_connections:
+        try:
+            await ws.send_text(broadcast_msg)
+        except Exception:
+            disconnected.add(ws)
+    manager.dashboard_connections -= disconnected
+
+    return {
+        "success": True,
+        "alert_id": alert_id,
+        "patient_id": patient_id,
+        "decision": dec.to_dict(),
+    }
+
+
+@app.get("/api/patients/{patient_id}/alerts", tags=["Phase 10 — Decisions"])
+async def get_patient_alerts(patient_id: str, limit: int = 20):
+    """
+    [Phase 10] List all alert records for a patient with their decision status.
+    """
+    patient = get_patient_by_id(patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail=f"Patient {patient_id} not found")
+
+    records = decision_manager.get_alerts_for_patient(patient_id)[:limit]
+    return {
+        "patient_id": patient_id,
+        "total": len(records),
+        "alerts": [r.to_dict() for r in records],
+    }
+
+
+@app.get("/api/alerts/pending", tags=["Phase 10 — Decisions"])
+async def get_pending_alerts():
+    """
+    [Phase 10] Get all cohort-wide undecided ESCALATED/SUSPECTED alerts
+    (the "Needs Review" queue). Sorted by risk score descending.
+    """
+    pending = decision_manager.get_pending_alerts()
+    return {
+        "total_pending": len(pending),
+        "alerts": [r.to_dict() for r in pending],
+    }
+
+
+# =============================================================================
+#  Phase 11: Audit Trail Endpoints
+# =============================================================================
+
+@app.get("/api/patients/{patient_id}/audit", tags=["Phase 11 — Audit Trail"])
+async def get_patient_audit(
+    patient_id: str,
+    from_ts: Optional[float] = Query(default=None, description="Unix timestamp lower bound"),
+    to_ts: Optional[float] = Query(default=None, description="Unix timestamp upper bound"),
+    limit: int = Query(default=100, le=500),
+):
+    """
+    [Phase 11] Return the audit log for a patient, optionally filtered by
+    time range. Includes observations, retrievals, reasoning, alerts, and decisions.
+    """
+    patient = get_patient_by_id(patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail=f"Patient {patient_id} not found")
+
+    entries = audit_logger.get_by_patient(
+        patient_id=patient_id,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        limit=limit,
+    )
+    return {
+        "patient_id": patient_id,
+        "total_entries": len(entries),
+        "entries": [e.to_dict() for e in entries],
+    }
+
+
+@app.get("/api/audit/{correlation_id}", tags=["Phase 11 — Audit Trail"])
+async def get_audit_chain(correlation_id: str):
+    """
+    [Phase 11] Return the full audit chain for one escalation episode,
+    ordered chronologically. This is the "explainability trace":
+    observation → retrieval → reasoning → alert → decision.
+    """
+    entries = audit_logger.get_by_correlation(correlation_id)
+    if not entries:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No audit entries found for correlation_id={correlation_id}"
+        )
+
+    chain_status = audit_logger.has_complete_chain(correlation_id)
+
+    return {
+        "correlation_id": correlation_id,
+        "chain_status": chain_status,
+        "entries": [e.to_dict() for e in entries],
+    }
+
+
+@app.get("/api/audit", tags=["Phase 11 — Audit Trail"])
+async def get_recent_audit(limit: int = Query(default=50, le=200)):
+    """
+    [Phase 11] Return the most recent audit entries across all patients.
+    """
+    entries = audit_logger.get_all(limit=limit)
+    return {
+        "total_entries": len(entries),
+        "entries": [e.to_dict() for e in reversed(entries)],  # newest first
+    }
+
+
+# =============================================================================
 #  Integrated Simulator Runner (for development convenience)
 # =============================================================================
 
-@app.on_event("startup")
-async def startup_event():
-    """Start the background simulator task when the server boots."""
-    print()
-    print("=" * 70)
-    print("  CLINICAL DECISION-SUPPORT - INGESTION GATEWAY")
-    print("=" * 70)
-    print("  WebSocket endpoints:")
-    print("    /ws/vitals/{patient_id}  - Simulator -> Server (per patient)")
-    print("    /ws/dashboard            - Server -> Dashboard (broadcasts)")
-    print("  REST endpoints:")
-    print("    GET /api/status           - System status")
-    print("    GET /api/patients          - All patient profiles")
-    print("    GET /api/patients/{id}     - Single patient + latest vitals")
-    print("    GET /api/patients/{id}/vitals - Recent vital history")
-    print("    GET /api/vitals/latest     - Latest vitals for all patients")
-    print("=" * 70)
-    print()
 
-    # Start the embedded simulator that pushes data via internal WebSocket
-    asyncio.create_task(_run_embedded_simulator())
 
 
 async def _run_embedded_simulator():
@@ -343,11 +785,7 @@ async def _run_embedded_simulator():
     Instead of connecting via real WebSocket, it directly feeds the manager.
     This avoids needing to run the simulator as a separate process during dev.
     """
-    import websockets as ws_lib
-
-    # Give the server a moment to fully start
     await asyncio.sleep(2)
-
     print("  [Simulator] Starting embedded simulator...")
 
     from simulator.patients import get_all_patients
@@ -382,8 +820,8 @@ async def _run_embedded_simulator():
                 "vitals": vitals.to_dict(),
             }
 
-            # Directly inject into the manager (bypassing WebSocket for embedded mode)
-            await manager.process_reading(pid, reading)
+            scenario = sim["patient"].scenario
+            await manager.process_reading(pid, reading, scenario=scenario)
 
         await asyncio.sleep(interval)
 
@@ -394,4 +832,12 @@ async def _run_embedded_simulator():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("ingestion.main:app", host="127.0.0.1", port=8000, reload=True)
+    import sys
+    reload = "--reload" in sys.argv
+    uvicorn.run(
+        "ingestion.main:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=reload,
+        reload_dirs=["ingestion", "engine", "alerts", "agent", "state", "simulator"] if reload else None,
+    )

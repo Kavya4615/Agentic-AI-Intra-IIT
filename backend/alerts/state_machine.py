@@ -233,6 +233,10 @@ class AlertStateMachine:
             # Snooze escalation for 10 minutes (120 readings)
             self._last_escalation_reading = self._reading_count - (ESCALATION_COOLDOWN_READINGS - 120)
 
+        elif decision == ClinicianDecision.INVESTIGATE:
+            # No state suppression — just a "watching" marker. Keep monitoring.
+            pass
+
         if event:
             event.clinician_decision = decision
 

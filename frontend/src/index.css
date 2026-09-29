@@ -1,0 +1,145 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+/* ── Light Theme Design Tokens ─────────────────────────────────────── */
+:root {
+  --bg-page:       #F5F6FA;
+  --bg-sidebar:    #FFFFFF;
+  --bg-card:       #FFFFFF;
+  --bg-header:     #FFFFFF;
+
+  --border-light:  #E8EBF0;
+  --border-card:   #EDF0F4;
+
+  --text-primary:   #1E293B;
+  --text-secondary: #64748B;
+  --text-muted:     #94A3B8;
+
+  --accent:        #6366F1;
+  --accent-light:  #EEF2FF;
+
+  --severity-normal:     #0D9488;
+  --severity-normal-bg:  #F0FDFA;
+  --severity-watch:      #D97706;
+  --severity-watch-bg:   #FFFBEB;
+  --severity-suspected:  #EA580C;
+  --severity-suspected-bg: #FFF7ED;
+  --severity-escalated:  #DC2626;
+  --severity-escalated-bg: #FEF2F2;
+
+  --shadow-card:   0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-hover:  0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+  --shadow-modal:  0 25px 50px -12px rgba(0,0,0,0.25);
+  --radius:        1rem;
+}
+
+/* ── Global Reset & Base ────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  overflow-x: hidden;
+}
+
+/* ── Widget Card ────────────────────────────────────────────────────── */
+.widget-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  padding: 1.25rem;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.widget-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+/* ── Typography Utilities ───────────────────────────────────────────── */
+.font-tabular {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+.stat-value {
+  font-family: 'Inter', sans-serif;
+  font-weight: 800;
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  line-height: 1;
+}
+.label-upper {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* ── Custom Scrollbar (light) ────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+/* ── Animations ──────────────────────────────────────────────────────── */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+  70%  { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+@keyframes slide-in-right {
+  from { transform: translateX(110%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes slide-out-right {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(110%); opacity: 0; }
+}
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+@keyframes escalation-flash {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: rgba(220, 38, 38, 0.06); }
+}
+
+.animate-pulse-soft  { animation: pulse-soft 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.animate-pulse-ring  { animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.animate-slide-in    { animation: slide-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-slide-out   { animation: slide-out-right 0.3s ease-in forwards; }
+.animate-fade-in-up  { animation: fade-in-up 0.4s ease forwards; }
+.animate-escalation  { animation: escalation-flash 2s ease infinite; }
+
+/* ── Risk Bar (light) ────────────────────────────────────────────────── */
+.risk-bar-fill {
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.4s ease;
+}
+
+/* ── Severity Accent Borders ──────────────────────────────────────────── */
+.severity-border-normal    { border-left: 3px solid var(--severity-normal); }
+.severity-border-watch     { border-left: 3px solid var(--severity-watch); }
+.severity-border-suspected { border-left: 3px solid var(--severity-suspected); }
+.severity-border-escalated { border-left: 3px solid var(--severity-escalated); }
+
+/* ── Donut Center Text ───────────────────────────────────────────────── */
+.donut-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
