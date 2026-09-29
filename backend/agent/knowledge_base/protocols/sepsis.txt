@@ -1,0 +1,12 @@
+# Sepsis Protocol (Surviving Sepsis Campaign Guidelines summary)
+1. INITIAL RESUSCITATION
+- Begin administration of crystalloids at 30 mL/kg for hypotension or lactate >= 4 mmol/L.
+- Apply vasopressors if blood pressure is not restored (target MAP >= 65 mm Hg).
+
+2. INFECTION MANAGEMENT
+- Administer broad-spectrum intravenous antimicrobials within 1 hour of recognition.
+- Obtain blood cultures before administering antimicrobials.
+
+3. HEMODYNAMIC SUPPORT
+- Use norepinephrine as the first-line vasopressor.
+- Continuously monitor heart rate, blood pressure, and oxygen saturation. Note that rapid heart rate (tachycardia) combined with low blood pressure is a strong indicator of septic shock.
