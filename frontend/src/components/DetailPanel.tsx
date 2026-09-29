@@ -10,6 +10,7 @@ import {
   Stethoscope
 } from 'lucide-react';
 import type { PatientProfile, PatientLiveState } from '../types';
+import MultiVitalChart from './MultiVitalChart';
 
 interface DetailPanelProps {
   patient: PatientProfile | null;
@@ -393,9 +394,30 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ patient, liveState, onOpenAge
           </div>
         </div>
       </div>
+
+      {/* ── Multi-Parameter Trend (all 4 channels) ── */}
+      <div className="widget-card flex flex-col gap-3" style={{ minHeight: 280 }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)' }}>
+              <Activity className="w-4 h-4" style={{ color: '#818CF8' }} />
+            </div>
+            <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+              Multi-Parameter Trend
+            </h3>
+          </div>
+          <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-lg"
+            style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)', color: '#818CF8' }}>
+            4 Channels · HR / SpO₂ / RR / BP
+          </span>
+        </div>
+        <MultiVitalChart hrHistory={liveState.hrHistory} vitals={vitals ?? null} />
+      </div>
     </div>
   );
 };
+
 
 /* ── Vital Stat Card ──────────────────────────── */
 const VitalStatCard = ({
