@@ -7,7 +7,7 @@ import {
 import {
   BrainCircuit, HeartPulse, Wind, Activity, Droplets,
   AlertCircle, ArrowUpRight, ArrowDownRight, ArrowRight, TrendingUp,
-  User, Stethoscope
+  Stethoscope
 } from 'lucide-react';
 import type { PatientProfile, PatientLiveState } from '../types';
 
