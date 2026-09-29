@@ -1,0 +1,23 @@
+# Hemorrhagic Shock Protocol (ATLS / Damage Control Resuscitation)
+
+1. CLASSIFICATION
+- Class I:   Blood loss < 15%, HR < 100, BP normal. Observe.
+- Class II:  Blood loss 15-30%, HR 100-120, decreased pulse pressure. Crystalloid resuscitation.
+- Class III: Blood loss 30-40%, HR 120-140, BP falling. Crystalloid + blood products.
+- Class IV:  Blood loss > 40%, HR > 140, BP < 90 mmHg. Immediate surgical haemostasis.
+
+2. KEY VITAL SIGN PATTERN (Shock Index)
+- Shock Index = HR / Systolic BP. Normal is < 1.0.
+- Shock Index > 1.0 suggests significant blood loss.
+- Rising HR with concurrent falling systolic BP is a critical concordant indicator.
+
+3. RESUSCITATION
+- Establish 2 large-bore IV lines immediately.
+- Balanced resuscitation: 1:1:1 ratio of packed RBCs, FFP, and platelets.
+- Avoid excessive crystalloid (can worsen coagulopathy).
+- Target systolic BP 80-90 mmHg until surgical haemostasis is achieved (permissive hypotension).
+- Tranexamic acid (TXA) 1g IV within 3 hours of injury.
+
+4. SURGICAL HAEMOSTASIS
+- Activate massive transfusion protocol (MTP) for Class III-IV shock.
+- Damage control surgery to control bleeding surgically.
