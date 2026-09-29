@@ -142,9 +142,23 @@ Open `http://localhost:5173` in your browser.
 │       ├── types.ts        # TypeScript interfaces
 │       └── index.css       # Dark glassmorphism design system
 └── docs/
+    ├── SentinelCare_Project_Documentation.md   # Full submission doc (export to PDF/DOCX)
     ├── system_design.md
     └── midterm_report.md
 ```
+
+### 📄 Hackathon documentation (PDF/DOCX)
+
+Full project documentation for submission:
+
+| Format | Path |
+|--------|------|
+| **PDF (ready to submit)** | [`docs/SentinelCare_Project_Documentation.pdf`](docs/SentinelCare_Project_Documentation.pdf) |
+| **Markdown (source)** | [`docs/SentinelCare_Project_Documentation.md`](docs/SentinelCare_Project_Documentation.md) |
+
+Content covers problem alignment, architecture, core-requirements traceability, setup, demo script, midterm solution steps, and evaluation mapping. Regenerate PDF with `npx md-to-pdf docs/SentinelCare_Project_Documentation.md`, or export DOCX from the `.md` file in Word (see Appendix in the doc).
+
+**Submission checklist:** README · exported PDF/DOCX · GitHub repo · demo video link · [`docs/midterm_report.md`](docs/midterm_report.md)
 
 ---
 
