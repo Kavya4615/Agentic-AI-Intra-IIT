@@ -1,0 +1,22 @@
+# Pneumothorax / Sudden Crisis Protocol (BTS Guidelines)
+
+1. DIAGNOSIS
+- Sudden onset dyspnoea, tachycardia, and desaturation are cardinal signs.
+- Primary spontaneous: occurs without underlying lung disease.
+- Secondary: occurs with pre-existing lung disease (higher mortality risk).
+- Tension pneumothorax: tracheal deviation, absent breath sounds, haemodynamic collapse — life-threatening emergency.
+
+2. IMMEDIATE MANAGEMENT (Tension Pneumothorax)
+- Immediate needle decompression: second intercostal space, mid-clavicular line.
+- Follow with chest drain insertion (4th or 5th ICS, mid-axillary line).
+- Do NOT delay for imaging in haemodynamically unstable patient.
+
+3. OXYGEN AND RESUSCITATION
+- High-flow oxygen 10-15 L/min via non-rebreather mask.
+- Oxygen accelerates reabsorption of pneumothorax (up to 4x faster).
+- Target SpO2 > 94% (or 88-92% if risk of hypercapnia).
+- IV access and fluid resuscitation if haemodynamically compromised.
+
+4. MONITORING
+- Continuous SpO2 and HR monitoring essential. Acute desaturation (SpO2 < 90%) combined with tachycardia (HR > 120) is a critical alert pattern.
+- Serial CXR every 2-4 hours to assess re-expansion.
