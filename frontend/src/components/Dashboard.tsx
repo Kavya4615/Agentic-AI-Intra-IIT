@@ -8,6 +8,7 @@ import PatientCard from './PatientCard';
 import ExplanationModal from './ExplanationModal';
 import DetailPanel from './DetailPanel';
 import Toast, { type ToastItem } from './Toast';
+import CohortStatsBar from './CohortStatsBar';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 
 const MAX_HR_HISTORY = 20;
@@ -254,6 +255,7 @@ const Dashboard: React.FC = () => {
   const escalatedCount = Object.values(liveState).filter(s => s.alertLevel === 'ESCALATED').length;
   const suspectedCount = Object.values(liveState).filter(s => s.alertLevel === 'SUSPECTED').length;
   const watchCount     = Object.values(liveState).filter(s => s.alertLevel === 'WATCH').length;
+  const normalCount    = Object.values(liveState).filter(s => s.alertLevel === 'NORMAL').length;
 
   const handleDecisionMade = useCallback((pid: string, decision: AlertDecision) => {
     setLiveState(prev => {
@@ -274,6 +276,16 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden" style={{ background: 'var(--bg-base)' }}>
+
+      {/* ── Cohort Stats Bar ─────────────────────────────────────────── */}
+      <CohortStatsBar
+        totalReadings={totalReadings}
+        escalatedCount={escalatedCount}
+        suspectedCount={suspectedCount}
+        watchCount={watchCount}
+        normalCount={normalCount}
+        totalPatients={patients.length}
+      />
 
       {/* ── ESCALATED Banner ─────────────────────────────────────────── */}
       {escalatedCount > 0 && (
