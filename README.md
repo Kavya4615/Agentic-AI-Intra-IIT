@@ -1,109 +1,166 @@
-# Clinical Decision-Support System (CDSS)
+# 🏥 SentinelCare — Agentic Clinical Deterioration & Escalation Copilot
 
-A real-time agentic Clinical Decision-Support System that ingests high-frequency patient vitals, deterministically evaluates physiological deterioration, and generates context-aware LLM reasoning (SBAR) when an alert is triggered.
+> **Track:** Agentic AI Systems (Healthcare) — Intra-IIT Hackathon
 
-## Architecture
+A real-time, agentic clinical decision-support system that watches a stream of patient vitals, maintains an evolving picture of each patient's state, recognizes **multi-parameter deterioration trends**, and escalates the right cases to a clinician with a clear, evidence-grounded explanation.
+
+---
+
+## ✨ Key Features
+
+| Feature | Description |
+|---|---|
+| 🔴 **Real-time Vitals Stream** | HR, SpO₂, RR, BP streamed via WebSocket — no static batching |
+| 🧠 **Agentic Reasoning** | LLM-powered SBAR generation with RAG over clinical protocols |
+| 📊 **Multi-parameter Trending** | Detects deterioration trajectories, not single-threshold spikes |
+| 🎯 **Risk-Scored Prioritisation** | Ranks patients by urgency; suppresses non-actionable re-alerts |
+| 🩺 **Clinician-in-the-Loop** | Accept / Dismiss / Defer / Investigate decisions per alert |
+| 📋 **Full Audit Trail** | Every observation, retrieval, reasoning step and decision logged |
+| 🌑 **Dark AI Dashboard** | Glassmorphism React UI with live charts and escalation toasts |
+
+---
+
+## 🏗️ Architecture
 
 ```mermaid
 graph TD
-    %% Simulator
-    subgraph "Bedside Monitors"
-        Sim[Simulator]
+    subgraph "Bedside Monitors (Simulated)"
+        Sim[Synthetic Vital Generator]
     end
 
-    %% Ingestion Gateway
     subgraph "FastAPI Backend"
         Ingest(Ingestion Gateway)
-        
-        %% State & Deterministic Pipeline
+
         subgraph "Deterministic Pipeline"
-            PP[Preprocessor]
-            RE[Risk Engine]
-            SM[Alert State Machine]
+            PP[Preprocessor + Artifact Filter]
+            RE[Risk Scorer — EWS + Deviation + Slope]
+            SM[Alert State Machine — NORMAL → WATCH → SUSPECTED → ESCALATED]
         end
-        
-        %% Agentic Pipeline
+
         subgraph "Agentic Reasoning"
             Agent[Agent Service]
             RAG[Knowledge Base RAG]
-            CTX[(Patient Context)]
+            CTX[(Per-Patient Static Context)]
         end
-        
-        %% Phase 10 & 11
-        DM[(Decision Manager)]
-        Audit[(Audit Trail)]
+
+        DM[(Decision Manager — Accept/Dismiss/Defer/Investigate)]
+        Audit[(Audit Trail Store)]
     end
 
-    %% Frontend
-    subgraph "React Frontend"
-        Dashboard[Clinician Dashboard]
-        Modal[Explanation Modal]
+    subgraph "React Frontend — SentinelCare UI"
+        Dashboard[Live Patient Dashboard]
+        Modal[AI SBAR Modal + Decision Panel]
     end
 
-    %% Data flow
-    Sim -- WebSocket (Vitals) --> Ingest
-    Ingest --> PP
-    PP --> RE
-    RE --> SM
-    
-    SM -- Escalated Alert --> Agent
-    Agent -- 1. Fetch Context --> CTX
-    Agent -- 2. Fetch Protocols --> RAG
-    Agent -- 3. SBAR Response --> DM
-    
-    Ingest -- WS (Broadcasts) --> Dashboard
-    
-    Dashboard -- View SBAR --> Modal
-    Modal -- Submit Decision (Phase 10) --> DM
-    DM -- Side Effects (Dismiss/Defer) --> SM
-    
-    %% Audit logging
-    PP -. log .-> Audit
-    Agent -. log .-> Audit
-    SM -. log .-> Audit
-    DM -. log .-> Audit
+    Sim -- WebSocket vitals --> Ingest
+    Ingest --> PP --> RE --> SM
+    SM -- ESCALATED --> Agent
+    Agent -- 1 context --> CTX
+    Agent -- 2 protocols --> RAG
+    Agent -- 3 SBAR --> DM
+    Ingest -- WS broadcast --> Dashboard
+    Dashboard --> Modal
+    Modal -- decision --> DM
+    DM -- side-effects --> SM
+    PP -.audit.- Audit
+    Agent -.audit.- Audit
+    SM -.audit.- Audit
+    DM -.audit.- Audit
 ```
 
-## Setup & Demo Instructions
+---
+
+## 🚀 Setup & Demo Instructions
+
+### Prerequisites
+- Python 3.10+
+- Node.js 18+
+- (Optional) OpenAI API key for live LLM reasoning
 
 ### 1. Backend Setup
+
 ```bash
 cd backend
+
+# Create virtual environment
 python -m venv venv
-# Windows
+
+# Activate (Windows)
 .\venv\Scripts\activate
-# Linux/Mac
+# Activate (Linux/Mac)
 # source venv/bin/activate
 
 pip install -r requirements.txt
 
-# (Optional) Set your OpenAI API key for live LLM reasoning.
-# If not set, the system uses a deterministic mock agent.
-echo "OPENAI_API_KEY=sk-your-key" > .env
+# Set API key (optional — falls back to deterministic mock)
+copy .env.example .env
+# Edit .env and add: OPENAI_API_KEY=sk-your-key
 
-# Run the FastAPI server (includes embedded simulator)
+# Start FastAPI server (auto-starts simulator)
 python ingestion/main.py
 ```
 
+The backend runs at `http://localhost:8000`.  
+API docs: `http://localhost:8000/docs`
+
 ### 2. Frontend Setup
+
 ```bash
 cd frontend
 npm install
-npm start
+npm run dev
 ```
 
-### 3. Demo Flow
-1. Open the dashboard at `http://localhost:3000`. You will see 8 patients with simulated real-time vital streams.
-2. Watch as patients deteriorate over time (e.g., P002 progressing into Sepsis).
-3. When a patient reaches **ESCALATED** status, they move to the top of the list and a notification appears.
-4. Click **View SBAR Report** to see the AI-generated clinical reasoning, which synthesises the real-time vitals, the patient's static clinical context (Phase 9), and clinical protocols.
-5. Provide a **Clinician Decision** (Accept, Dismiss, Defer, Investigate) (Phase 10).
-6. View the **Audit Trail** tab to see the explainability trace for the entire alert episode (Phase 11).
+Open `http://localhost:5173` in your browser.
 
-## Implementation Phases
-- Phase 1-5: Simulator, Ingestion, Preprocessing, Risk Engine, Alert State Machine
-- Phase 6-8: Agent Service, RAG Knowledge Base, Frontend Dashboard
-- Phase 9: Static Per-Patient Clinical Context Integration
-- Phase 10: Clinician-in-the-Loop Decision Workflow
-- Phase 11: Full Audit Trail
-- Phase 12: Documentation & Deliverables
+### 3. Demo Flow
+
+1. **Watch the cohort** — 8 patients with different scenarios (stable, gradual deterioration, COPD exacerbation, sudden crisis, etc.)
+2. **Vitals stream live** — every 5 seconds, heart rate, SpO₂, respiratory rate and blood pressure update in real time
+3. **Escalation occurs** — patients deteriorating past threshold reach **ESCALATED** status, triggering a toast notification and red banner
+4. **Open SBAR Report** — click _AI SBAR Report_ to see the LLM's situation/background/assessment/recommendation grounded in retrieved clinical protocols
+5. **Make a decision** — Accept, Dismiss (suppress 30 min), Defer (15 min), or Investigate
+6. **Audit Trail** — the _Audit Trail_ tab shows every step: observations → retrieval → reasoning → alert → decision
+
+---
+
+## 📁 Project Structure
+
+```
+.
+├── backend/
+│   ├── agent/              # SBAR reasoning, RAG, patient context
+│   ├── alerts/             # Alert state machine, decision manager
+│   ├── database/           # In-memory state and audit stores
+│   ├── engine/             # Preprocessor, risk scorer, trend detector
+│   ├── ingestion/          # FastAPI app, WebSocket gateway
+│   ├── simulator/          # Synthetic patient & vital generators
+│   └── state/              # Per-patient live state
+├── frontend/
+│   └── src/
+│       ├── components/     # Dashboard, PatientCard, DetailPanel, ExplanationModal, Toast
+│       ├── types.ts        # TypeScript interfaces
+│       └── index.css       # Dark glassmorphism design system
+└── docs/
+    ├── system_design.md
+    └── midterm_report.md
+```
+
+---
+
+## 📊 Evaluation Alignment
+
+| Criterion | Weight | How We Address It |
+|---|---|---|
+| Solution idea & innovation | 20% | Agentic loop with RAG-grounded SBAR, multi-param trend detection, EWS scoring |
+| Code structure & architecture | 40% | Layered deterministic pipeline → agentic reasoning → clinician decision loop, mirrors proposed design |
+| Demo explanation & reasoning | 25% | Full audit trail, SBAR sections, protocol citations, decision history |
+| Output accuracy | 15% | EWS-calibrated thresholds, artifact filtering, suppression logic |
+
+---
+
+## 🛠️ Tech Stack
+
+**Backend:** Python · FastAPI · WebSockets · OpenAI (optional) · In-memory stores  
+**Frontend:** React 19 · TypeScript · Vite · Recharts · Tailwind CSS v4  
+**AI/ML:** RAG over clinical guidelines · EWS risk scoring · Multi-parameter trend detection
