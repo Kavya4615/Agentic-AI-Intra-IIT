@@ -1,0 +1,24 @@
+# Arrhythmia (Tachyarrhythmia) Protocol (AHA/ACC Guidelines)
+
+1. INITIAL ASSESSMENT
+- Check for haemodynamic instability: hypotension, altered consciousness, chest pain, acute heart failure.
+- If haemodynamically unstable: immediate synchronised DC cardioversion.
+- Attach continuous 12-lead ECG monitoring. Identify the arrhythmia type.
+
+2. NARROW COMPLEX TACHYCARDIA (QRS < 120ms)
+- Regular: likely SVT, AVNRT, or atrial flutter.
+  - Vagal manoeuvres first (Valsalva, carotid sinus massage).
+  - If unsuccessful: Adenosine 6mg IV rapid bolus (followed by flush). Repeat with 12mg if needed.
+- Irregular: likely atrial fibrillation.
+  - Rate control: beta-blockers (metoprolol) or calcium channel blockers (diltiazem).
+  - Rhythm control: amiodarone if < 48h onset.
+
+3. BROAD COMPLEX TACHYCARDIA (QRS >= 120ms)
+- Assume Ventricular Tachycardia (VT) until proven otherwise.
+- Haemodynamically stable VT: amiodarone 150mg IV over 10 minutes.
+- If haemodynamically unstable: synchronised cardioversion immediately.
+- Pulseless VT/VF: defibrillation + CPR (ACLS protocol).
+
+4. MONITORING
+- Continuous HR monitoring. Episodic tachycardia bursts (HR > 150) in patients with known arrhythmia history require immediate evaluation.
+- Monitor for QT prolongation with all antiarrhythmic medications.
