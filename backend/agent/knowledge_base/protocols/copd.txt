@@ -1,0 +1,19 @@
+# COPD Exacerbation Protocol (GOLD Guidelines summary)
+
+1. SEVERITY ASSESSMENT
+- Assess severity using ABG: mild (no acidosis), moderate (pH 7.25-7.35), severe (pH < 7.25).
+- SpO2 target: 88-92% in COPD patients (avoid hyperoxia which can suppress hypoxic drive).
+
+2. PHARMACOLOGICAL MANAGEMENT
+- Administer short-acting bronchodilators (SABA + SAMA nebulisation) immediately.
+- Give systemic corticosteroids (prednisolone 40mg/day for 5 days).
+- Use antibiotics if sputum purulence or clinical signs of infection are present.
+
+3. RESPIRATORY SUPPORT
+- Controlled oxygen therapy: titrate to target SpO2 88-92%.
+- Non-invasive positive pressure ventilation (NIPPV/BiPAP) for moderate-severe exacerbations with respiratory acidosis (pH < 7.35, PaCO2 > 45 mmHg).
+- Intubation and mechanical ventilation if NIPPV fails or is contraindicated.
+
+4. MONITORING
+- Monitor respiratory rate continuously. Rising RR (>24/min) with worsening SpO2 indicates need for escalation.
+- Watch for paradoxical breathing and accessory muscle use.
