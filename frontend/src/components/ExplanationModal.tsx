@@ -5,7 +5,7 @@ import {
   ClipboardList, ChevronDown, ChevronUp, User, Beaker, Pill, History,
   ArrowRight,
 } from 'lucide-react';
-import type { SBARExplanation, AlertRecord, AuditEntry, PatientContext, AlertDecision } from '../types';
+import type { SBARExplanation, AuditEntry, PatientContext, AlertDecision } from '../types';
 
 const API = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -666,7 +666,7 @@ const AuditTab: React.FC<{
       <div className="relative">
         <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-slate-100" />
         <div className="space-y-4">
-          {entries.map((entry, idx) => {
+          {entries.map((entry) => {
             const cfg = AUDIT_EVENT_CONFIG[entry.event_type] ?? { dot: 'bg-slate-300', label: entry.event_type, icon: Activity };
             const Icon = cfg.icon;
             const time = new Date(entry.timestamp_iso).toLocaleTimeString([], {
@@ -709,7 +709,7 @@ const AuditPayload: React.FC<{ payload: Record<string, unknown>; eventType: stri
     summary = `Protocols: ${protocols.join(', ') || 'none'}`;
   } else if (eventType === 'reasoning') {
     const sbar = payload.sbar as { situation?: string } | undefined;
-    summary = sbar?.situation?.substring(0, 80) + '...' ?? '';
+    summary = sbar?.situation ? `${sbar.situation.substring(0, 80)}...` : '';
   } else if (eventType === 'decision') {
     summary = `${payload.decision} by ${payload.clinician_id}`;
   }

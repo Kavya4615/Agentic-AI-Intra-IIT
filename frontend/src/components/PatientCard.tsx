@@ -19,7 +19,7 @@ const DECISION_BADGE_CONFIG = {
 } as const;
 
 const SEVERITY_CONFIG: Record<string, {
-  dot: string; badge: string; badgeText: string; border: string; accent: string;
+  dot: string; badge: string; border: string; accent: string;
 }> = {
   NORMAL:    { dot: 'bg-teal-500',   badge: 'bg-teal-50 text-teal-700 border-teal-200',     border: 'severity-border-normal',    accent: '#0D9488' },
   WATCH:     { dot: 'bg-amber-500',  badge: 'bg-amber-50 text-amber-700 border-amber-200',  border: 'severity-border-watch',     accent: '#D97706' },
@@ -138,7 +138,7 @@ const PatientCard: React.FC<PatientCardProps> = ({
       </div>
 
       {/* SBAR button + Decision Badge */}
-      {(isEscalated || isSelected) && (
+      {(isEscalated || isSelected || !!liveState?.latestDecision) && (
         <div className="mt-3 flex flex-col gap-2">
           {/* Decision badge if a decision exists */}
           {liveState?.latestDecision && (() => {

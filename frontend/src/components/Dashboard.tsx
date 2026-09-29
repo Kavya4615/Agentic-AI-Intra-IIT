@@ -33,10 +33,10 @@ const Dashboard: React.FC = () => {
 
   const wsRef = useRef<WebSocket | null>(null);
   const patientNameMap = useRef<Record<string, string>>({});
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backoffRef = useRef(1000);
   const lastMessageTimeRef = useRef<number>(Date.now());
-  const stallCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const stallCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const dismissToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -100,15 +100,22 @@ const Dashboard: React.FC = () => {
   // ── Initial data + WebSocket ──────────────────────────────────────────────
 
   useEffect(() => {
+    let isSubscribed = true;
+
     fetchInitialData();
     refreshPendingCount();
 
     const connectWs = () => {
+      if (!isSubscribed) return;
       console.log(`[WebSocket] Connecting to ${WS_URL}...`);
       const ws = new WebSocket(WS_URL);
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (!isSubscribed) {
+          ws.close();
+          return;
+        }
         console.log('[WebSocket] Connected');
         setSystemStatus('connected');
         setOfflineReason('');
@@ -118,6 +125,7 @@ const Dashboard: React.FC = () => {
       };
 
       ws.onclose = (event) => {
+        if (!isSubscribed) return;
         console.log(`[WebSocket] Disconnected (code: ${event.code}, reason: ${event.reason})`);
         setSystemStatus(backoffRef.current > 1000 ? 'reconnecting' : 'offline');
         setOfflineReason(`Code ${event.code}`);
@@ -126,8 +134,10 @@ const Dashboard: React.FC = () => {
         const backoff = Math.min(backoffRef.current, 10000);
         console.log(`[WebSocket] Reconnecting in ${backoff}ms...`);
         reconnectTimeoutRef.current = setTimeout(() => {
-          backoffRef.current = backoff * 2;
-          connectWs();
+          if (isSubscribed) {
+            backoffRef.current = backoff * 2;
+            connectWs();
+          }
         }, backoff);
       };
 
@@ -136,8 +146,9 @@ const Dashboard: React.FC = () => {
       };
 
       ws.onmessage = (event) => {
+        if (!isSubscribed) return;
         lastMessageTimeRef.current = Date.now();
-        if (systemStatus === 'stalled') setSystemStatus('connected');
+        setSystemStatus(prev => (prev === 'stalled' ? 'connected' : prev));
         try {
           const msg = JSON.parse(event.data);
 
@@ -171,10 +182,13 @@ const Dashboard: React.FC = () => {
               };
             });
 
-            if (data._alert_event?.to_level === 'ESCALATED') {
-              const name = patientNameMap.current[data.patient_id] ?? data.patient_id;
-              addToast(data, name);
+            if (data._alert_event) {
+              // Refresh pending count on any alert state change (including de-escalation)
               refreshPendingCount();
+              if (data._alert_event.to_level === 'ESCALATED') {
+                const name = patientNameMap.current[data.patient_id] ?? data.patient_id;
+                addToast(data, name);
+              }
             }
           }
 
@@ -184,9 +198,21 @@ const Dashboard: React.FC = () => {
             setLiveState(prev => {
               const existing = prev[patient_id];
               if (!existing) return prev;
+
+              // Mirror the same level-downgrade logic for WS-broadcast decisions
+              let newLevel = existing.alertLevel;
+              const d = (decision?.decision ?? '') as string;
+              if (d === 'dismiss') {
+                newLevel = 'NORMAL';
+              } else if (d === 'accept' || d === 'investigate' || d === 'defer') {
+                if (newLevel === 'ESCALATED' || newLevel === 'SUSPECTED') {
+                  newLevel = 'WATCH';
+                }
+              }
+
               return {
                 ...prev,
-                [patient_id]: { ...existing, latestDecision: decision },
+                [patient_id]: { ...existing, latestDecision: decision, alertLevel: newLevel },
               };
             });
             refreshPendingCount();
@@ -219,7 +245,7 @@ const Dashboard: React.FC = () => {
     connectWs();
 
     stallCheckIntervalRef.current = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.OPEN && systemStatus !== 'stalled') {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
         const timeSinceLastMessage = Date.now() - lastMessageTimeRef.current;
         if (timeSinceLastMessage > 15000) {
           console.warn('[WebSocket] No messages received in 15s. Stream stalled.');
@@ -230,11 +256,15 @@ const Dashboard: React.FC = () => {
     }, 5000);
 
     return () => {
-      wsRef.current?.close();
+      isSubscribed = false;
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (stallCheckIntervalRef.current) clearInterval(stallCheckIntervalRef.current);
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
-  }, [addToast, refreshPendingCount, fetchInitialData, systemStatus]);
+  }, [addToast, refreshPendingCount, fetchInitialData]);
 
   // Sorted and filtered patient list
   const sortedPatients = [...patients].sort((a, b) => {
@@ -270,7 +300,25 @@ const Dashboard: React.FC = () => {
     setLiveState(prev => {
       const existing = prev[pid];
       if (!existing) return prev;
-      return { ...prev, [pid]: { ...existing, latestDecision: decision } };
+
+      // Downgrade alert level after a clinician action so the patient
+      // leaves the ESCALATED banner / Needs Review queue immediately.
+      let newLevel = existing.alertLevel;
+      const d = decision.decision;
+      if (d === 'dismiss') {
+        // Dismiss forces all the way back to NORMAL (SM side-effect mirrors this)
+        newLevel = 'NORMAL';
+      } else if (d === 'accept' || d === 'investigate' || d === 'defer') {
+        // Accept / investigate / defer: still monitoring but no longer urgent
+        if (newLevel === 'ESCALATED' || newLevel === 'SUSPECTED') {
+          newLevel = 'WATCH';
+        }
+      }
+
+      return {
+        ...prev,
+        [pid]: { ...existing, latestDecision: decision, alertLevel: newLevel },
+      };
     });
     refreshPendingCount();
   }, [refreshPendingCount]);

@@ -201,7 +201,7 @@ class DecisionManager:
 
             elif decision_lower == "accept":
                 sm.record_clinician_decision(ClinicianDecision.ACCEPT)
-                resulting_state = current_level  # Unchanged
+                resulting_state = sm.level.value  # De-escalated by SM
 
             elif decision_lower == "defer":
                 sm.record_clinician_decision(ClinicianDecision.DEFER)
@@ -209,9 +209,9 @@ class DecisionManager:
                 resulting_state = current_level  # Alert stays active but snoozed
 
             elif decision_lower == "investigate":
-                # No state suppression — just a "watching" marker
+                # Active investigation — de-escalate urgency
                 sm.record_clinician_decision(ClinicianDecision.INVESTIGATE)
-                resulting_state = current_level
+                resulting_state = sm.level.value  # De-escalated by SM
             else:
                 resulting_state = current_level
         else:
@@ -231,7 +231,59 @@ class DecisionManager:
         )
 
         record.decision = alert_decision
+
+        # Auto-resolve all other pending alerts for this patient.
+        # When a clinician acts on one alert, older unresolved alerts
+        # for the same patient are no longer actionable.
+        for other_aid in self._patient_alerts.get(record.patient_id, []):
+            if other_aid != alert_id:
+                other_rec = self._alerts.get(other_aid)
+                if other_rec and other_rec.needs_review:
+                    other_rec.decision = AlertDecision(
+                        id=str(uuid.uuid4()),
+                        alert_id=other_aid,
+                        patient_id=record.patient_id,
+                        decision="auto_resolved",
+                        clinician_id="system",
+                        reason=f"Superseded by {decision_lower} on alert {alert_id}",
+                        decided_at=now,
+                        previous_state=other_rec.to_level,
+                        resulting_state=other_rec.to_level,
+                    )
+
         return alert_decision
+
+    def auto_resolve_patient_pending(
+        self,
+        patient_id: str,
+        reason: str = "auto-resolved",
+    ) -> int:
+        """
+        Mark all pending (needs_review) alerts for a patient as auto-resolved.
+        Called when a patient naturally de-escalates, so stale ESCALATED/SUSPECTED
+        records don't linger in the 'needs review' queue.
+
+        Returns the number of alerts resolved.
+        """
+        resolved = 0
+        ids = self._patient_alerts.get(patient_id, [])
+        now = time.time()
+        for aid in ids:
+            record = self._alerts.get(aid)
+            if record and record.needs_review:
+                record.decision = AlertDecision(
+                    id=str(uuid.uuid4()),
+                    alert_id=aid,
+                    patient_id=patient_id,
+                    decision="auto_resolved",
+                    clinician_id="system",
+                    reason=reason,
+                    decided_at=now,
+                    previous_state=record.to_level,
+                    resulting_state=record.to_level,
+                )
+                resolved += 1
+        return resolved
 
     # ── Queries ────────────────────────────────────────────────────────────
 

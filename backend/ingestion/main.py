@@ -38,6 +38,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pydantic import ValidationError
 
+import sys
+from pathlib import Path
+
+# Ensure backend root directory is on sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from ingestion.schemas import (
     VitalReadingMessage,
     PatientProfileResponse,
@@ -272,6 +278,17 @@ class ConnectionManager:
 
             decision_manager.register_alert(alert_event, correlation_id=correlation_id)
 
+            # Auto-resolve stale pending alerts when patient de-escalates
+            _LEVEL_ORD = {AlertLevel.NORMAL: 0, AlertLevel.WATCH: 1,
+                         AlertLevel.SUSPECTED: 2, AlertLevel.ESCALATED: 3}
+            if _LEVEL_ORD.get(alert_event.to_level, 0) < _LEVEL_ORD.get(alert_event.from_level, 0):
+                _resolved = decision_manager.auto_resolve_patient_pending(
+                    patient_id,
+                    reason=f"De-escalated: {alert_event.from_level.value} -> {alert_event.to_level.value}"
+                )
+                if _resolved > 0:
+                    print(f"  [Decision] Auto-resolved {_resolved} stale alert(s) for {patient_id}")
+
             # ── Agentic reasoning on ESCALATED transitions ──────────────────
             if alert_event.to_level == AlertLevel.ESCALATED:
                 patient_state = state_manager.get_state(patient_id)
@@ -400,7 +417,7 @@ async def websocket_dashboard(websocket: WebSocket):
             except json.JSONDecodeError:
                 pass
 
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, Exception):
         manager.disconnect_dashboard(websocket)
 
 
@@ -649,6 +666,13 @@ async def post_alert_decision(
         },
         correlation_id=correlation_id,
     )
+
+    # Sync state machine level to patient state after decision side-effects
+    if _pipeline:
+        _sm = _pipeline.get_alert_machine(patient_id)
+        _patient_st = state_manager.get_state(patient_id)
+        if _patient_st:
+            _patient_st.set_alert_level(_sm.level)
 
     # Broadcast decision update to dashboard
     broadcast_msg = json.dumps({
